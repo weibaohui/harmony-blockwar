@@ -27,6 +27,7 @@ struct Index {
   @State newBest: boolean = false;
   @State warn: boolean = false;
   @State warnIn: number = 0;
+  @State warnCount: number = 0;
 
   // ---------- 引擎与画布 ----------
   private eng: Engine = new Engine();
@@ -183,7 +184,7 @@ struct Index {
         .backgroundColor(CARD)
         .border({ width: 1, color: CARD_LINE })
       if (this.mode === GameMode.Hazard && this.phase !== Phase.Ready) {
-        Text(this.warn ? '⚠ 垃圾行来袭' : `⏱ ${this.warnIn}s`)
+        Text(this.warn ? `⚠ x${this.warnCount}` : `⏱ ${this.warnIn}s`)
           .fontSize(11)
           .fontWeight(FontWeight.Bold)
           .fontColor(RED)
@@ -419,6 +420,9 @@ struct Index {
     const hasWarn = e.pendingGarbage > 0;
     if (hasWarn !== this.warn) {
       this.warn = hasWarn;
+    }
+    if (e.pendingGarbage !== this.warnCount) {
+      this.warnCount = e.pendingGarbage;
     }
     if (e.mode === GameMode.Hazard && e.phase === Phase.Running) {
       const s = Math.max(0, Math.ceil((e.nextGarbageAt - now) / 1000));

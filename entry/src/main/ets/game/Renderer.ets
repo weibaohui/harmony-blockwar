@@ -1,7 +1,9 @@
 /**
  * Canvas 渲染器：把 Engine 的状态画到画布上。
  * 坐标单位与 ArkUI 组件一致（vp），宽高来自 Canvas onAreaChange。
- * 布局：左侧 HOLD 面板 + 中间 10×20 棋盘 + 右侧 NEXT 面板。
+ * 两种布局：
+ * - 竖屏：棋盘上方一条紧凑信息条（HOLD + NEXT），棋盘放大居中
+ * - 横屏：棋盘左侧 HOLD、右侧 NEXT
  */
 
 import { Engine, Phase, GameMode, ROWS, COLS, BUFFER_ROWS, BOARD_ROWS, GARBAGE_INTERVAL_MS } from './Engine';
@@ -12,11 +14,11 @@ const BOARD_GRID = 'rgba(255,255,255,0.05)';
 const BOARD_BORDER = 'rgba(74,212,232,0.30)';
 const PANEL_BG = 'rgba(23,28,49,0.92)';
 const PANEL_BORDER = 'rgba(74,212,232,0.18)';
-const LABEL_COLOR = '#8F96AD';
 const TOAST_BG = 'rgba(10,13,26,0.78)';
 
-const SIDE = 3.4;  // 侧边面板宽（格数）
+const SIDE = 3.4;  // 横屏侧边面板宽（格数）
 const GAP = 0.5;   // 面板与棋盘间距（格数）
+const STRIP = 2.6; // 竖屏顶部信息条高（格数）
 
 export class Renderer {
   private cell = 0;
@@ -33,7 +35,67 @@ export class Renderer {
       return;
     }
     ctx.clearRect(0, 0, W, H);
+    if (W / H >= 1.05) {
+      this.drawLandscape(ctx, W, H, eng, now);
+    } else {
+      this.drawPortrait(ctx, W, H, eng, now);
+    }
+  }
 
+  // ---------------- 竖屏布局 ----------------
+
+  private drawPortrait(ctx: CanvasRenderingContext2D, W: number, H: number, eng: Engine, now: number): void {
+    let cell = Math.floor(Math.min(W / 10.8, H / (ROWS + STRIP + 0.4)));
+    if (cell < 6) {
+      cell = 6;
+    }
+    this.cell = cell;
+    const bw = COLS * cell;
+    const bh = ROWS * cell;
+    const stripH = Math.floor(STRIP * cell);
+    this.bx = Math.floor((W - bw) / 2);
+    this.by = Math.floor((H - bh - stripH) / 2) + stripH;
+
+    this.drawStrip(ctx, eng, this.bx, this.by - stripH, bw, stripH);
+    this.drawBoardBase(ctx, bw, bh);
+    this.drawSettled(ctx, bw, bh, eng, now);
+    this.drawActive(ctx, eng);
+    this.drawHazardBar(ctx, bw, bh, eng, now);
+    this.drawToast(ctx, bw, bh, eng, now);
+  }
+
+  /** 竖屏顶部信息条：HOLD 在左，NEXT 三枚在右 */
+  private drawStrip(ctx: CanvasRenderingContext2D, eng: Engine, x: number, y: number, w: number, h: number): void {
+    const s = this.cell;
+    const holdW = Math.floor(2.8 * s);
+    this.rr(ctx, x, y, holdW, h, 8);
+    ctx.fillStyle = PANEL_BG;
+    ctx.fill();
+    ctx.strokeStyle = PANEL_BORDER;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    if (eng.holdIdx >= 0) {
+      this.miniPiece(ctx, eng.holdIdx, x + holdW / 2, y + h / 2, s * 0.5, eng.canHold ? 1.0 : 0.35);
+    }
+
+    const nextW = Math.floor(6.2 * s);
+    const nx = x + w - nextW;
+    this.rr(ctx, nx, y, nextW, h, 8);
+    ctx.fillStyle = PANEL_BG;
+    ctx.fill();
+    ctx.strokeStyle = PANEL_BORDER;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    for (let i = 0; i < 3 && i < eng.queue.length; i++) {
+      const cx = nx + nextW * (i + 0.5) / 3;
+      const alpha = i === 0 ? 1.0 : (i === 1 ? 0.75 : 0.5);
+      this.miniPiece(ctx, eng.queue[i], cx, y + h / 2, s * 0.42, alpha);
+    }
+  }
+
+  // ---------------- 横屏布局 ----------------
+
+  private drawLandscape(ctx: CanvasRenderingContext2D, W: number, H: number, eng: Engine, now: number): void {
     let cell = Math.floor(Math.min(W / (COLS + (SIDE + GAP) * 2), H / (ROWS + 0.8)));
     if (cell < 6) {
       cell = 6;
@@ -45,7 +107,7 @@ export class Renderer {
     this.bx = Math.floor((W - (bw + leftW * 2)) / 2) + leftW;
     this.by = Math.floor((H - bh) / 2);
 
-    this.drawPanels(ctx, eng, now);
+    this.drawSidePanels(ctx, eng);
     this.drawBoardBase(ctx, bw, bh);
     this.drawSettled(ctx, bw, bh, eng, now);
     this.drawActive(ctx, eng);
@@ -53,7 +115,38 @@ export class Renderer {
     this.drawToast(ctx, bw, bh, eng, now);
   }
 
-  // ---------------- 各部分绘制 ----------------
+  /** 横屏侧面板：HOLD 左、NEXT 右 */
+  private drawSidePanels(ctx: CanvasRenderingContext2D, eng: Engine): void {
+    const s = this.cell;
+    const panelW = Math.floor(SIDE * s);
+    const leftX = this.bx - Math.floor((SIDE + GAP) * s);
+    const rightX = this.bx + COLS * s + Math.floor(GAP * s);
+
+    this.rr(ctx, leftX, this.by, panelW, Math.floor(4.2 * s), 8);
+    ctx.fillStyle = PANEL_BG;
+    ctx.fill();
+    ctx.strokeStyle = PANEL_BORDER;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    if (eng.holdIdx >= 0) {
+      this.miniPiece(ctx, eng.holdIdx, leftX + panelW / 2, this.by + 2.1 * s, s * 0.62, eng.canHold ? 1.0 : 0.35);
+    }
+
+    const nextH = Math.floor(9.6 * s);
+    this.rr(ctx, rightX, this.by, panelW, nextH, 8);
+    ctx.fillStyle = PANEL_BG;
+    ctx.fill();
+    ctx.strokeStyle = PANEL_BORDER;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    for (let i = 0; i < 3 && i < eng.queue.length; i++) {
+      const cy = this.by + (1.7 + i * 2.6) * s;
+      const alpha = i === 0 ? 1.0 : (i === 1 ? 0.75 : 0.5);
+      this.miniPiece(ctx, eng.queue[i], rightX + panelW / 2, cy, s * (i === 0 ? 0.62 : 0.5), alpha);
+    }
+  }
+
+  // ---------------- 棋盘与动态元素 ----------------
 
   private drawBoardBase(ctx: CanvasRenderingContext2D, bw: number, bh: number): void {
     const x = this.bx;
@@ -61,7 +154,6 @@ export class Renderer {
     this.rr(ctx, x - 4, y - 4, bw + 8, bh + 8, 10);
     ctx.fillStyle = BOARD_BG;
     ctx.fill();
-    // 细网格
     ctx.strokeStyle = BOARD_GRID;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -151,50 +243,6 @@ export class Renderer {
     }
   }
 
-  private drawPanels(ctx: CanvasRenderingContext2D, eng: Engine, now: number): void {
-    const s = this.cell;
-    const panelW = Math.floor(SIDE * s);
-    const leftX = this.bx - Math.floor((SIDE + GAP) * s);
-    const rightX = this.bx + COLS * s + Math.floor(GAP * s);
-
-    // HOLD
-    this.rr(ctx, leftX, this.by, panelW, Math.floor(4.2 * s), 8);
-    ctx.fillStyle = PANEL_BG;
-    ctx.fill();
-    ctx.strokeStyle = PANEL_BORDER;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    if (eng.holdIdx >= 0) {
-      this.miniPiece(ctx, eng.holdIdx, leftX + panelW / 2, this.by + 2.1 * s, s * 0.62, eng.canHold ? 1.0 : 0.35);
-    }
-
-    // NEXT
-    const nextH = Math.floor(9.6 * s);
-    this.rr(ctx, rightX, this.by, panelW, nextH, 8);
-    ctx.fillStyle = PANEL_BG;
-    ctx.fill();
-    ctx.strokeStyle = PANEL_BORDER;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    for (let i = 0; i < 3 && i < eng.queue.length; i++) {
-      const cy = this.by + (1.7 + i * 2.6) * s;
-      const alpha = i === 0 ? 1.0 : (i === 1 ? 0.75 : 0.5);
-      this.miniPiece(ctx, eng.queue[i], rightX + panelW / 2, cy, s * (i === 0 ? 0.62 : 0.5), alpha);
-    }
-
-    // 左下：模式徽章
-    const modeY = this.by + 4.8 * s;
-    const modeName = eng.mode === GameMode.Classic ? '经典' : '危机';
-    const modeColor = eng.mode === GameMode.Classic ? '#4AD4E8' : '#FF5A5A';
-    this.rr(ctx, leftX, modeY, panelW, Math.floor(1.6 * s), 8);
-    ctx.fillStyle = PANEL_BG;
-    ctx.fill();
-    ctx.strokeStyle = PANEL_BORDER;
-    ctx.stroke();
-    this.label2(ctx, modeName, leftX + panelW / 2, modeY + 0.52 * s, s * 0.52, modeColor);
-    this.label2(ctx, `Lv.${eng.level}`, leftX + panelW / 2, modeY + 1.05 * s, s * 0.4, LABEL_COLOR);
-  }
-
   private drawHazardBar(ctx: CanvasRenderingContext2D, bw: number, bh: number, eng: Engine, now: number): void {
     if (eng.mode !== GameMode.Hazard) {
       return;
@@ -208,14 +256,13 @@ export class Renderer {
     ctx.fillStyle = 'rgba(255,90,90,0.85)';
     ctx.fillRect(this.bx, this.by, bw * frac, 3);
 
-    // 垃圾行挂起时：红色脉冲边框
+    // 垃圾行挂起时：红色脉冲边框（数量提示在 HUD）
     if (eng.pendingGarbage > 0) {
       const a = 0.4 + 0.3 * Math.sin(now / 130);
       this.rr(ctx, this.bx - 4, this.by - 4, bw + 8, bh + 8, 10);
       ctx.strokeStyle = `rgba(255,90,90,${a.toFixed(3)})`;
       ctx.lineWidth = 4;
       ctx.stroke();
-      this.label2(ctx, `⚠ x${eng.pendingGarbage}`, this.bx + bw / 2, this.by - 1.35 * this.cell, this.cell * 0.55, '#FF5A5A');
     }
   }
 
@@ -245,14 +292,6 @@ export class Renderer {
   }
 
   // ---------------- 基础图元 ----------------
-
-  private label2(ctx: CanvasRenderingContext2D, text: string, cx: number, y: number, fs: number, color: string): void {
-    ctx.font = `bold ${Math.max(10, fs)}px sans-serif`;
-    ctx.fillStyle = color;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, cx, y);
-  }
 
   /** 圆角方块：主体色 + 顶部高光 + 底部阴影边 */
   private block(ctx: CanvasRenderingContext2D, x: number, y: number, s: number,
