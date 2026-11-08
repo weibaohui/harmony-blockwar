@@ -31,6 +31,7 @@ export class Piece {
   rot: number;
   x: number;
   y: number;
+  bombCell: number = -1; // 藏弹格下标（0..3，-1 无弹），锁定后写入棋盘值 +10
 
   constructor(idx: number, rot: number, x: number, y: number) {
     this.idx = idx;
@@ -339,7 +340,9 @@ export class Engine {
       const nx = old.x + dxs[d];
       for (let y = Math.max(old.y, 1); y >= 1; y--) {
         if (!this.collidesAt(new Piece(newIdx, 0, nx, y), nx, y, 0)) {
-          this.cur = new Piece(newIdx, 0, nx, y);
+          const np = new Piece(newIdx, 0, nx, y);
+          np.bombCell = old.bombCell; // 变异保留藏弹
+          this.cur = np;
           this.grounded = false;
           this.lockResets = 0;
           this.lastFall = Date.now();
@@ -504,6 +507,10 @@ export class Engine {
     }
     this.cur = p;
     this.lockStart = 0;
+    // 15% 概率藏一枚隐形炸弹
+    if (Math.random() < 0.15) {
+      p.bombCell = Math.floor(Math.random() * 4);
+    }
   }
 
   private onSuccessfulMove(): void {
@@ -539,7 +546,7 @@ export class Engine {
         aboveVisible += 1;
         continue;
       }
-      this.board[by][bx] = p.idx + 1;
+      this.board[by][bx] = p.idx + 1 + (i === p.bombCell ? 10 : 0);
       if (by < BUFFER_ROWS) {
         aboveVisible += 1;
       }
@@ -553,19 +560,10 @@ export class Engine {
       this.showToast('游戏结束');
       return;
     }
-    // 检测满行
-    const full: number[] = [];
-    for (let r = 0; r < BOARD_ROWS; r++) {
-      let ok = true;
-      for (let c = 0; c < COLS; c++) {
-        if (this.board[r][c] === 0) {
-          ok = false;
-          break;
-        }
-      }
-      if (ok) {
-        full.push(r);
-      }
+    // 满行初检 → 藏弹引爆（满行炸弹 / 相邻炸弹对，3×3 连锁）→ 重检满行
+    let full = this.findFullRows();
+    if (this.detonateBombs(full)) {
+      full = this.findFullRows();
     }
     if (full.length > 0) {
       this.combo += 1;
@@ -672,5 +670,123 @@ export class Engine {
   private showToast(text: string): void {
     this.toast = text;
     this.toastAt = Date.now();
+  }
+
+  private findFullRows(): number[] {
+    const full: number[] = [];
+    for (let r = 0; r < BOARD_ROWS; r++) {
+      let ok = true;
+      for (let c = 0; c < COLS; c++) {
+        if (this.board[r][c] === 0) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        full.push(r);
+      }
+    }
+    return full;
+  }
+
+  /**
+   * 藏弹引爆。棋盘值 >10 的格子是炸弹。
+   * 引爆条件：① 位于本次消除的满行；② 两枚炸弹正交相邻（互相引爆）。
+   * 爆破 3×3，波及到的其他炸弹连锁；被清列做重力下落补位。
+   */
+  private detonateBombs(full: number[]): boolean {
+    const bombs = new Set<number>(); // key = r * COLS + c
+    for (let r = 0; r < BOARD_ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (this.board[r][c] > 10) {
+          bombs.add(r * COLS + c);
+        }
+      }
+    }
+    if (bombs.size === 0) {
+      return false;
+    }
+    const fullSet = new Set<number>(full);
+    const detonating = new Set<number>();
+    for (const key of bombs) {
+      const r = Math.floor(key / COLS);
+      if (fullSet.has(r)) {
+        detonating.add(key); // ① 随满行被消除
+        continue;
+      }
+      const c = key % COLS;
+      const nb: number[] = [key - COLS, key + COLS];
+      if (c > 0) {
+        nb.push(key - 1);
+      }
+      if (c < COLS - 1) {
+        nb.push(key + 1);
+      }
+      for (let i = 0; i < nb.length; i++) {
+        if (bombs.has(nb[i])) {
+          detonating.add(key); // ② 相邻炸弹互相引爆
+          detonating.add(nb[i]);
+        }
+      }
+    }
+    // 连锁：爆破波及到的炸弹继续引爆
+    const exploded = new Set<number>();
+    while (detonating.size > 0) {
+      let key = -1;
+      for (const k of detonating) {
+        key = k;
+        break;
+      }
+      detonating.delete(key);
+      if (key < 0 || exploded.has(key)) {
+        continue;
+      }
+      exploded.add(key);
+      const r = Math.floor(key / COLS);
+      const c = key % COLS;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const nr = r + dr;
+          const nc = c + dc;
+          if (nr < 0 || nr >= BOARD_ROWS || nc < 0 || nc >= COLS) {
+            continue;
+          }
+          const nkey = nr * COLS + nc;
+          if (this.board[nr][nc] > 10 && !exploded.has(nkey)) {
+            detonating.add(nkey);
+          }
+        }
+      }
+    }
+    // 清除爆破区域 + 列内下落补位
+    let cleared = 0;
+    const colsAffected = new Set<number>();
+    for (const key of exploded) {
+      const r = Math.floor(key / COLS);
+      const c = key % COLS;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const nr = r + dr;
+          const nc = c + dc;
+          if (nr < 0 || nr >= BOARD_ROWS || nc < 0 || nc >= COLS) {
+            continue;
+          }
+          if (this.board[nr][nc] !== 0) {
+            this.board[nr][nc] = 0;
+            cleared += 1;
+            colsAffected.add(nc);
+          }
+        }
+      }
+    }
+    if (cleared === 0) {
+      return false;
+    }
+    for (const c of colsAffected) {
+      this.compactColumn(c);
+    }
+    this.score += cleared * 10;
+    this.showToast(`💣 x${exploded.size} -${cleared}`);
+    return true;
   }
 }
