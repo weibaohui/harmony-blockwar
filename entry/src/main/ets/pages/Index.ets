@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { Engine, Phase, GameMode, ItemType, ITEM_ICONS, ITEM_NAMES, ITEM_DESCS } from '../game/Engine';
+import { Engine, Phase, GameMode } from '../game/Engine';
 import { Renderer } from '../game/Renderer';
 import { PieceAI, AIResult } from '../game/AI';
 
@@ -51,7 +51,6 @@ struct Index {
   private settingsWasRunning: boolean = false;
   private bannerUntil: number = 0;
   private bannerSeenAt: number = 0;
-  private itemsKey: string = '';
 
   // 手势累计
   private lastGX: number = 0;
@@ -98,9 +97,6 @@ struct Index {
   build() {
     Column() {
       this.hudBar()
-      if (this.itemIcons.length > 0) {
-        this.itemBar()
-      }
       Stack() {
         Canvas(this.canvasCtx)
           .width('100%')
@@ -193,58 +189,6 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor(PAGE_BG)
-  }
-
-  // ---------------- 道具条 ----------------
-
-  @Builder
-  itemBar() {
-    Row({ space: 8 }) {
-      ForEach(this.itemIcons, (icon: string, idx: number) => {
-        Text(icon)
-          .fontSize(16)
-          .textAlign(TextAlign.Center)
-          .width(36)
-          .height(36)
-          .borderRadius(11)
-          .backgroundColor(CARD)
-          .border({ width: 1, color: CARD_LINE })
-          .onClick(() => this.useItemAt(idx))
-      }, (icon: string, idx: number) => `${icon}-${idx}`)
-    }
-    .width('100%')
-    .padding({ left: 12, right: 12, top: 4, bottom: 4 })
-  }
-
-  /** 使用道具：🧬 变异走 AI 选最优形状，其余走引擎；生效弹出大卡片 */
-  private useItemAt(slot: number): void {
-    const t = this.eng.items[slot];
-    if (t === ItemType.Mutate) {
-      let bestIdx = -1;
-      let bestS = -Infinity;
-      for (let i = 0; i < 7; i++) {
-        const r = PieceAI.bestFor(this.eng.board, i);
-        if (r !== null && r.score > bestS) {
-          bestS = r.score;
-          bestIdx = i;
-        }
-      }
-      if (bestIdx >= 0 && this.eng.replaceCurrentPiece(bestIdx)) {
-        this.eng.removeItem(slot);
-        this.showBanner(ItemType.Mutate);
-        this.aiSeq = -1;
-      }
-      return;
-    }
-    if (this.eng.useItem(slot)) {
-      this.showBanner(t);
-      this.aiSeq = -1;
-    }
-  }
-
-  private showBanner(t: number): void {
-    this.banner = [ITEM_ICONS[t], ITEM_NAMES[t], ITEM_DESCS[t]];
-    this.bannerUntil = Date.now() + 2200;
   }
 
   // ---------------- HUD ----------------
@@ -665,17 +609,7 @@ struct Index {
     if (e.pendingGarbage !== this.warnCount) {
       this.warnCount = e.pendingGarbage;
     }
-    // 道具背包同步
-    const ik = e.items.join(',');
-    if (ik !== this.itemsKey) {
-      this.itemsKey = ik;
-      const arr: string[] = [];
-      for (let i = 0; i < e.items.length; i++) {
-        arr.push(ITEM_ICONS[e.items[i]]);
-      }
-      this.itemIcons = arr;
-    }
-    // 道具生效大卡片（藏弹引爆等引擎侧触发）
+    // 道具生效大卡片（引擎侧触发：消行掉落当场生效 / 藏弹引爆）
     if (e.banner !== null && e.bannerAt !== this.bannerSeenAt) {
       this.bannerSeenAt = e.bannerAt;
       this.banner = e.banner;

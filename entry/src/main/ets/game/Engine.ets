@@ -7,6 +7,7 @@
  */
 
 import { PIECES, kickTable } from './Tetromino';
+import { PieceAI } from './AI';
 
 export const COLS = 15;
 export const ROWS = 20;          // 可见行数（渲染用）
@@ -23,16 +24,14 @@ export enum GameMode { Classic, Hazard }
 
 /** 道具类型 */
 export enum ItemType { Bomb, Mutate, Shuffle, ClearBottom, Slow }
-export const ITEM_ICONS: string[] = ['💥', '🧬', '🎲', '🧹', '🐢'];
 export const ITEM_NAMES: string[] = ['爆炸', '变异', '捣乱', '清底', '减速'];
 export const ITEM_DESCS: string[] = [
-  '轰掉落点周围 5×5 砖块，上方砖块下落补位',
+  '轰掉最高砖塔周围 5×5，砖块下落补位',
   'AI 算出当前局势最优形状，当场变身',
   '把后续所有方块顺序全部打乱',
   '直接移除底部两行堆叠',
   '重力放慢 2.5 倍，持续 10 秒',
 ];
-export const ITEM_CAP = 3;
 
 export const BLAST_MS = 500;
 
@@ -78,7 +77,6 @@ export class Engine {
   canHold = true;
   queue: number[] = [];
   pieceSeq = 0; // 每次出新方块自增，供 AI 辅助检测重新计算
-  items: number[] = [];      // 背包（ItemType，最多 ITEM_CAP 个）
   slowUntil = 0;             // 🐢 减速截止时间
   itemRate = 0.35;           // 道具基础掉落概率（设置面板可调，消行数越多在此基础上加成）
   // 道具生效大卡片（页面层展示，[图标, 名称, 描述]）
@@ -124,7 +122,6 @@ export class Engine {
     this.softDrop = false;
     this.pendingGarbage = 0;
     this.garbageFired = 0;
-    this.items = [];
     this.slowUntil = 0;
     this.banner = null;
     this.bannerAt = 0;
@@ -329,76 +326,52 @@ export class Engine {
     return gy;
   }
 
-  // ---------------- 道具 ----------------
+  // ---------------- 道具（掉落即当场生效） ----------------
 
-  /** 使用背包中指定槽位的道具（变异由页面层配合 AI 处理） */
-  useItem(slot: number): boolean {
-    if (this.phase !== Phase.Running || slot < 0 || slot >= this.items.length) {
-      return false;
-    }
-    const t = this.items[slot];
-    let ok = false;
+  /** 当场执行指定道具（消行掉落时调用） */
+  applyItem(t: number): void {
     if (t === ItemType.Bomb) {
-      ok = this.useBomb();
+      this.applyBombAtPeak();
+      this.banner = ['💥', ITEM_NAMES[ItemType.Bomb], ITEM_DESCS[ItemType.Bomb]];
+    } else if (t === ItemType.Mutate) {
+      this.applyMutate();
+      this.banner = ['🧬', ITEM_NAMES[ItemType.Mutate], ITEM_DESCS[ItemType.Mutate]];
     } else if (t === ItemType.Shuffle) {
-      ok = this.useShuffle();
+      this.useShuffle();
+      this.banner = ['🎲', ITEM_NAMES[ItemType.Shuffle], ITEM_DESCS[ItemType.Shuffle]];
     } else if (t === ItemType.ClearBottom) {
-      ok = this.useClearBottom();
+      this.useClearBottom();
+      this.banner = ['🧹', ITEM_NAMES[ItemType.ClearBottom], ITEM_DESCS[ItemType.ClearBottom]];
     } else if (t === ItemType.Slow) {
-      ok = this.useSlow();
+      this.useSlow();
+      this.banner = ['🐢', ITEM_NAMES[ItemType.Slow], ITEM_DESCS[ItemType.Slow]];
     }
-    if (!ok) {
-      return false;
-    }
-    this.items.splice(slot, 1);
-    return true;
+    this.bannerAt = Date.now();
   }
 
-  /** 移除指定槽位（变异路径专用） */
-  removeItem(slot: number): void {
-    if (slot >= 0 && slot < this.items.length) {
-      this.items.splice(slot, 1);
-    }
-  }
-
-  /** 变异：把当前方块替换为指定形状，原地不行则小幅平移/上移找合法位 */
-  replaceCurrentPiece(newIdx: number): boolean {
-    if (this.phase !== Phase.Running || this.cur === null) {
-      return false;
-    }
-    const old = this.cur;
-    const dxs = [0, -1, 1, -2, 2];
-    for (let d = 0; d < dxs.length; d++) {
-      const nx = old.x + dxs[d];
-      for (let y = Math.max(old.y, 1); y >= 1; y--) {
-        if (!this.collidesAt(new Piece(newIdx, 0, nx, y), nx, y, 0)) {
-          const np = new Piece(newIdx, 0, nx, y);
-          np.bombCell = old.bombCell; // 变异保留藏弹
-          this.cur = np;
-          this.grounded = false;
-          this.lockResets = 0;
-          this.lastFall = Date.now();
-          return true;
+  /** 💥 轰掉最高砖塔周围 5×5，被波及列下落补位 */
+  private applyBombAtPeak(): void {
+    let bestC = -1;
+    let bestH = 0;
+    for (let c = 0; c < COLS; c++) {
+      let top = -1;
+      for (let r = 0; r < BOARD_ROWS; r++) {
+        if (this.board[r][c] !== 0) {
+          top = r;
+          break;
         }
       }
+      const h = top < 0 ? 0 : BOARD_ROWS - top;
+      if (h > bestH) {
+        bestH = h;
+        bestC = c;
+      }
     }
-    return false;
-  }
-
-  /** 💥 爆炸：清除当前方块中心 5×5 砖块，被波及列下落补位 */
-  private useBomb(): boolean {
-    if (this.cur === null) {
-      return false;
+    if (bestC < 0 || bestH <= 0) {
+      return;
     }
-    const cells = PIECES[this.cur.idx].cells[this.cur.rot];
-    let cx = 0;
-    let cy = 0;
-    for (let i = 0; i < cells.length; i++) {
-      cx += cells[i][0];
-      cy += cells[i][1];
-    }
-    const ccx = Math.floor(cx / cells.length) + this.cur.x;
-    const ccy = Math.floor(cy / cells.length) + this.cur.y;
+    const ccx = bestC;
+    const ccy = BOARD_ROWS - Math.ceil(bestH / 2);
     const R = 2;
     let cleared = 0;
     const fx = new BlastFx();
@@ -423,7 +396,7 @@ export class Engine {
       }
     }
     if (cleared === 0) {
-      return false;
+      return;
     }
     this.blasts.push(fx);
     for (let c = 0; c < COLS; c++) {
@@ -431,7 +404,50 @@ export class Engine {
     }
     this.score += cleared * 12;
     this.showToast(`💥 -${cleared}`);
-    return true;
+  }
+
+  /** 🧬 变异：把当前方块替换为 AI 认定最优的形状 */
+  private applyMutate(): void {
+    if (this.cur === null) {
+      return;
+    }
+    let bestIdx = -1;
+    let bestS = -Infinity;
+    for (let i = 0; i < 7; i++) {
+      const r = PieceAI.bestFor(this.board, i);
+      if (r !== null && r.score > bestS) {
+        bestS = r.score;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0) {
+      return;
+    }
+    this.replaceCurrentPiece(bestIdx);
+  }
+
+  /** 变异：把当前方块替换为指定形状，原地不行则小幅平移/上移找合法位 */
+  replaceCurrentPiece(newIdx: number): boolean {
+    if (this.phase !== Phase.Running || this.cur === null) {
+      return false;
+    }
+    const old = this.cur;
+    const dxs = [0, -1, 1, -2, 2];
+    for (let d = 0; d < dxs.length; d++) {
+      const nx = old.x + dxs[d];
+      for (let y = Math.max(old.y, 1); y >= 1; y--) {
+        if (!this.collidesAt(new Piece(newIdx, 0, nx, y), nx, y, 0)) {
+          const np = new Piece(newIdx, 0, nx, y);
+          np.bombCell = old.bombCell; // 变异保留藏弹
+          this.cur = np;
+          this.grounded = false;
+          this.lockResets = 0;
+          this.lastFall = Date.now();
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /** 列内重力：非零砖块沉底，空格上浮 */
@@ -667,16 +683,14 @@ export class Engine {
     }
     this.level = newLevel;
 
-    // 道具掉落：四消必得，其余按设置的基础概率（双行以上 +0.2 加成）
-    const chance = n >= 4 ? 1 : Math.min(1, this.itemRate + (n >= 2 ? 0.2 : 0));
-    if (this.items.length < ITEM_CAP && Math.random() < chance) {
-      const t = Math.floor(Math.random() * 5);
-      this.items.push(t);
-      this.showToast(`+ ${ITEM_ICONS[t]}`);
-    }
-
     this.phase = Phase.Running;
     this.spawnFromQueue(Date.now());
+
+    // 道具掉落即当场生效：四消必得，其余按设置的基础概率（双行以上 +0.2 加成）
+    const chance = n >= 4 ? 1 : Math.min(1, this.itemRate + (n >= 2 ? 0.2 : 0));
+    if (Math.random() < chance) {
+      this.applyItem(Math.floor(Math.random() * 5));
+    }
   }
 
   private pushGarbage(n: number): void {
