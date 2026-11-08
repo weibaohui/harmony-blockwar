@@ -164,9 +164,8 @@ export class Renderer {
     ctx.strokeStyle = PANEL_BORDER;
     ctx.lineWidth = 1;
     ctx.stroke();
-    this.label(ctx, 'HOLD', leftX + panelW / 2, this.by + 0.28 * s, s * 0.42);
     if (eng.holdIdx >= 0) {
-      this.miniPiece(ctx, eng.holdIdx, leftX + panelW / 2, this.by + 2.6 * s, s * 0.62, eng.canHold ? 1.0 : 0.35);
+      this.miniPiece(ctx, eng.holdIdx, leftX + panelW / 2, this.by + 2.1 * s, s * 0.62, eng.canHold ? 1.0 : 0.35);
     }
 
     // NEXT
@@ -177,9 +176,8 @@ export class Renderer {
     ctx.strokeStyle = PANEL_BORDER;
     ctx.lineWidth = 1;
     ctx.stroke();
-    this.label(ctx, 'NEXT', rightX + panelW / 2, this.by + 0.28 * s, s * 0.42);
     for (let i = 0; i < 3 && i < eng.queue.length; i++) {
-      const cy = this.by + (2.4 + i * 2.4) * s;
+      const cy = this.by + (1.7 + i * 2.6) * s;
       const alpha = i === 0 ? 1.0 : (i === 1 ? 0.75 : 0.5);
       this.miniPiece(ctx, eng.queue[i], rightX + panelW / 2, cy, s * (i === 0 ? 0.62 : 0.5), alpha);
     }
@@ -247,14 +245,6 @@ export class Renderer {
   }
 
   // ---------------- 基础图元 ----------------
-
-  private label(ctx: CanvasRenderingContext2D, text: string, cx: number, y: number, fs: number): void {
-    ctx.font = `bold ${Math.max(10, fs)}px sans-serif`;
-    ctx.fillStyle = LABEL_COLOR;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(text, cx, y);
-  }
 
   private label2(ctx: CanvasRenderingContext2D, text: string, cx: number, y: number, fs: number, color: string): void {
     ctx.font = `bold ${Math.max(10, fs)}px sans-serif`;

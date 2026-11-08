@@ -13,66 +13,6 @@ const CYAN = '#4AD4E8';
 const RED = '#FF5A5A';
 const GOLD = '#FFD24A';
 
-/** 可长按连发的游戏按钮 */
-@Component
-struct GameButton {
-  label: string = '';
-  repeatable: boolean = false;
-  action: () => void = () => {};
-
-  private timerId: number = -1;
-  private scheduled: boolean = false;
-
-  build() {
-    Text(this.label)
-      .fontSize(20)
-      .fontWeight(FontWeight.Bold)
-      .fontColor(TEXT)
-      .textAlign(TextAlign.Center)
-      .width(58)
-      .height(58)
-      .borderRadius(18)
-      .backgroundColor('#1B2138')
-      .border({ width: 1, color: CARD_LINE })
-      .onTouch((e: TouchEvent) => {
-        this.handleTouch(e);
-      })
-  }
-
-  private handleTouch(e: TouchEvent): void {
-    if (e.type === TouchType.Down) {
-      this.action();
-      if (this.repeatable && !this.scheduled) {
-        this.scheduled = true;
-        this.timerId = setTimeout(() => {
-          this.repeatFire();
-        }, 180);
-      }
-    } else if (e.type === TouchType.Up || e.type === TouchType.Cancel) {
-      this.cancel();
-    }
-  }
-
-  private repeatFire(): void {
-    this.action();
-    this.timerId = setTimeout(() => {
-      this.repeatFire();
-    }, 45);
-  }
-
-  private cancel(): void {
-    if (this.timerId >= 0) {
-      clearTimeout(this.timerId);
-      this.timerId = -1;
-    }
-    this.scheduled = false;
-  }
-
-  aboutToDisappear(): void {
-    this.cancel();
-  }
-}
-
 @Entry
 @Component
 struct Index {
@@ -220,8 +160,6 @@ struct Index {
             }
           })
       )
-
-      this.controlBar()
     }
     .width('100%')
     .height('100%')
@@ -255,10 +193,10 @@ struct Index {
           .border({ width: 1, color: 'rgba(255,90,90,0.4)' })
       }
       Blank()
-      this.stat('得分', `${this.score}`, TEXT)
-      this.stat('最高', `${this.mode === GameMode.Classic ? this.bestClassic : this.bestHazard}`, GOLD)
-      this.stat('行数', `${this.lines}`, CYAN)
-      this.stat('等级', `${this.level}`, '#B58CFF')
+      this.stat(`${this.score}`, TEXT)
+      this.stat(`${this.mode === GameMode.Classic ? this.bestClassic : this.bestHazard}`, GOLD)
+      this.stat(`${this.lines}`, CYAN)
+      this.stat(`Lv.${this.level}`, '#B58CFF')
       if (this.phase === Phase.Running || this.phase === Phase.Paused || this.phase === Phase.Clearing) {
         Text(this.phase === Phase.Paused ? '▶' : '⏸')
           .fontSize(16)
@@ -277,78 +215,16 @@ struct Index {
   }
 
   @Builder
-  stat(label: string, value: string, color: string) {
-    Column() {
-      Text(value)
-        .fontSize(15)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(color)
-        .maxLines(1)
-      Text(label)
-        .fontSize(9)
-        .fontColor(SUB)
-    }
-    .alignItems(HorizontalAlign.Center)
-    .backgroundColor(CARD)
-    .borderRadius(10)
-    .border({ width: 1, color: CARD_LINE })
-    .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-  }
-
-  // ---------------- 控制按钮 ----------------
-
-  @Builder
-  controlBar() {
-    Column({ space: 4 }) {
-      Row({ space: 10 }) {
-        GameButton({
-          label: '存',
-          action: (): void => {
-            this.eng.hold();
-          }
-        })
-        GameButton({
-          label: '←',
-          repeatable: true,
-          action: (): void => {
-            this.eng.moveH(-1);
-          }
-        })
-        GameButton({
-          label: '→',
-          repeatable: true,
-          action: (): void => {
-            this.eng.moveH(1);
-          }
-        })
-        GameButton({
-          label: '⬇',
-          repeatable: true,
-          action: (): void => {
-            this.eng.softDropStep();
-          }
-        })
-        GameButton({
-          label: '⟳',
-          action: (): void => {
-            this.eng.rotate(1);
-          }
-        })
-        GameButton({
-          label: '⤓',
-          action: (): void => {
-            this.eng.hardDrop();
-          }
-        })
-      }
-      .justifyContent(FlexAlign.Center)
-      .width('100%')
-
-      Text('滑动移动 · 点按旋转 · 上滑暂存 · 快速下滑急降')
-        .fontSize(10)
-        .fontColor('#5A6076')
-    }
-    .padding({ left: 12, right: 12, top: 8, bottom: 14 })
+  stat(value: string, color: string) {
+    Text(value)
+      .fontSize(17)
+      .fontWeight(FontWeight.Bold)
+      .fontColor(color)
+      .maxLines(1)
+      .backgroundColor(CARD)
+      .borderRadius(10)
+      .border({ width: 1, color: CARD_LINE })
+      .padding({ left: 12, right: 12, top: 8, bottom: 8 })
   }
 
   // ---------------- 弹层 ----------------
@@ -373,13 +249,6 @@ struct Index {
         .fontSize(44)
         .fontWeight(FontWeight.Bold)
         .fontColor(CYAN)
-      Text('B L O C K  W A R')
-        .fontSize(13)
-        .fontColor(SUB)
-        .letterSpacing(4)
-      Text('危机模式：垃圾行不断来袭，看你能顶多久')
-        .fontSize(13)
-        .fontColor(SUB)
       Column({ space: 10 }) {
         Button('经典模式')
           .width(240)
@@ -404,9 +273,6 @@ struct Index {
             this.startGame(GameMode.Hazard);
           })
       }
-      Text(`最高分  经典 ${this.bestClassic} · 危机 ${this.bestHazard}`)
-        .fontSize(12)
-        .fontColor(SUB)
     }
     .justifyContent(FlexAlign.Center)
     .width('100%')
@@ -478,7 +344,7 @@ struct Index {
         .fontSize(52)
         .fontWeight(FontWeight.Bold)
         .fontColor(GOLD)
-      Text(`行数 ${this.lines} · 等级 ${this.level}`)
+      Text(`${this.lines} 行 · Lv.${this.level}`)
         .fontSize(14)
         .fontColor(SUB)
       Button('再来一局')
