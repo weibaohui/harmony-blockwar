@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { Engine, Phase, GameMode } from '../game/Engine';
 import { Renderer } from '../game/Renderer';
+import { PieceAI, AIResult } from '../game/AI';
 
 // ---------- 配色 ----------
 const PAGE_BG = '#0E1122';
@@ -28,6 +29,7 @@ struct Index {
   @State warn: boolean = false;
   @State warnIn: number = 0;
   @State warnCount: number = 0;
+  @State aiOn: boolean = false;
 
   // ---------- 引擎与画布 ----------
   private eng: Engine = new Engine();
@@ -38,6 +40,8 @@ struct Index {
   private cvH: number = 0;
   private timerId: number = -1;
   private store: preferences.Preferences | null = null;
+  private aiResult: AIResult | null = null;
+  private aiSeq: number = -1;
 
   // 手势累计
   private lastGX: number = 0;
@@ -53,6 +57,7 @@ struct Index {
       this.store = preferences.getPreferencesSync(ctx, opt);
       this.bestClassic = this.store.getSync('best_classic', 0) as number;
       this.bestHazard = this.store.getSync('best_hazard', 0) as number;
+      this.aiOn = this.store.getSync('ai_assist', false) as boolean;
     } catch (e) {
       // 存储不可用时仅丢失最高分记录
     }
@@ -199,6 +204,16 @@ struct Index {
       this.stat(`${this.lines}`, CYAN)
       this.stat(`Lv.${this.level}`, '#B58CFF')
       if (this.phase === Phase.Running || this.phase === Phase.Paused || this.phase === Phase.Clearing) {
+        Text('⚡')
+          .fontSize(14)
+          .fontColor(this.aiOn ? GOLD : SUB)
+          .textAlign(TextAlign.Center)
+          .width(34)
+          .height(34)
+          .borderRadius(12)
+          .backgroundColor(this.aiOn ? 'rgba(255,210,74,0.16)' : CARD)
+          .border({ width: 1, color: this.aiOn ? 'rgba(255,210,74,0.55)' : CARD_LINE })
+          .onClick(() => this.toggleAI())
         Text(this.phase === Phase.Paused ? '▶' : '⏸')
           .fontSize(16)
           .fontColor(TEXT)
@@ -398,7 +413,16 @@ struct Index {
   private loopStep(): void {
     const now = Date.now();
     this.eng.tick(now);
-    this.rd.draw(this.canvasCtx, this.cvW, this.cvH, this.eng, now);
+    // AI 辅助：出新方块（或刚开启）时计算最佳姿态与落点
+    if (this.aiOn) {
+      if (this.eng.pieceSeq !== this.aiSeq) {
+        this.aiSeq = this.eng.pieceSeq;
+        this.aiResult = PieceAI.best(this.eng);
+      }
+    } else if (this.aiResult !== null) {
+      this.aiResult = null;
+    }
+    this.rd.draw(this.canvasCtx, this.cvW, this.cvH, this.eng, now, this.aiResult);
 
     // 同步 HUD 状态（仅在变化时赋值，减少无谓刷新）
     const e = this.eng;
@@ -440,6 +464,22 @@ struct Index {
     }
   }
 
+  private toggleAI(): void {
+    this.aiOn = !this.aiOn;
+    this.aiSeq = -1; // 强制下一帧重算
+    if (!this.aiOn && this.aiResult !== null) {
+      this.aiResult = null;
+    }
+    try {
+      if (this.store !== null) {
+        this.store.putSync('ai_assist', this.aiOn);
+        this.store.flush();
+      }
+    } catch (e) {
+      // 忽略持久化失败
+    }
+  }
+
   private startGame(mode: GameMode): void {
     this.newBest = false;
     this.mode = mode;
@@ -448,6 +488,8 @@ struct Index {
     this.level = 1;
     this.warnIn = 0;
     this.warn = false;
+    this.aiSeq = -1;
+    this.aiResult = null;
     this.eng.start(mode);
     this.phase = this.eng.phase;
   }

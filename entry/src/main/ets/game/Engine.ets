@@ -51,6 +51,7 @@ export class Engine {
   holdIdx = -1;
   canHold = true;
   queue: number[] = [];
+  pieceSeq = 0; // 每次出新方块自增，供 AI 辅助检测重新计算
   clearingRows: number[] = [];
   clearStart = 0;
   lastFall = 0;
@@ -324,6 +325,7 @@ export class Engine {
   }
 
   private spawnPiece(idx: number, now: number): void {
+    this.pieceSeq += 1;
     // 出生点：可见区顶部再往上（缓冲区），水平居中
     const isI = idx === 0;
     const px = isI ? Math.floor((COLS - 4) / 2)

@@ -8,6 +8,7 @@
 
 import { Engine, Phase, GameMode, ROWS, COLS, BUFFER_ROWS, BOARD_ROWS, GARBAGE_INTERVAL_MS } from './Engine';
 import { PIECES, GARBAGE_COLOR, GARBAGE_LIGHT, GARBAGE_DARK, PieceDef } from './Tetromino';
+import { AIResult } from './AI';
 
 const BOARD_BG = '#141A2C';
 const BOARD_GRID = 'rgba(255,255,255,0.05)';
@@ -30,21 +31,21 @@ export class Renderer {
     return this.cell;
   }
 
-  draw(ctx: CanvasRenderingContext2D, W: number, H: number, eng: Engine, now: number): void {
+  draw(ctx: CanvasRenderingContext2D, W: number, H: number, eng: Engine, now: number, ai: AIResult | null = null): void {
     if (W < 24 || H < 24) {
       return;
     }
     ctx.clearRect(0, 0, W, H);
     if (W / H >= 1.05) {
-      this.drawLandscape(ctx, W, H, eng, now);
+      this.drawLandscape(ctx, W, H, eng, now, ai);
     } else {
-      this.drawPortrait(ctx, W, H, eng, now);
+      this.drawPortrait(ctx, W, H, eng, now, ai);
     }
   }
 
   // ---------------- 竖屏布局 ----------------
 
-  private drawPortrait(ctx: CanvasRenderingContext2D, W: number, H: number, eng: Engine, now: number): void {
+  private drawPortrait(ctx: CanvasRenderingContext2D, W: number, H: number, eng: Engine, now: number, ai: AIResult | null): void {
     let cell = Math.floor(Math.min(W / (COLS + 0.3), H / (ROWS + STRIP + 0.4)));
     if (cell < 6) {
       cell = 6;
@@ -60,6 +61,7 @@ export class Renderer {
     this.drawBoardBase(ctx, bw, bh);
     this.drawSettled(ctx, bw, bh, eng, now);
     this.drawActive(ctx, eng);
+    this.drawAIHint(ctx, eng, ai);
     this.drawHazardBar(ctx, bw, bh, eng, now);
     this.drawToast(ctx, bw, bh, eng, now);
   }
@@ -95,7 +97,7 @@ export class Renderer {
 
   // ---------------- 横屏布局 ----------------
 
-  private drawLandscape(ctx: CanvasRenderingContext2D, W: number, H: number, eng: Engine, now: number): void {
+  private drawLandscape(ctx: CanvasRenderingContext2D, W: number, H: number, eng: Engine, now: number, ai: AIResult | null): void {
     let cell = Math.floor(Math.min(W / (COLS + (SIDE + GAP) * 2 + 0.4), H / (ROWS + 0.8)));
     if (cell < 6) {
       cell = 6;
@@ -110,6 +112,7 @@ export class Renderer {
     this.drawBoardBase(ctx, bw, bh);
     this.drawSettled(ctx, bw, bh, eng, now);
     this.drawActive(ctx, eng);
+    this.drawAIHint(ctx, eng, ai);
     this.drawHazardBar(ctx, bw, bh, eng, now);
     this.drawToast(ctx, bw, bh, eng, now);
   }
@@ -239,6 +242,28 @@ export class Renderer {
         continue;
       }
       this.block(ctx, this.bx + bx * s, this.by + (by - BUFFER_ROWS) * s, s, def.color, def.light, def.dark, 1.0);
+    }
+  }
+
+  /** AI 推荐落点：金色描边（旋转与列由 PieceAI 计算，落点按当前盘面直落重算） */
+  private drawAIHint(ctx: CanvasRenderingContext2D, eng: Engine, ai: AIResult | null): void {
+    if (ai === null || eng.cur === null || eng.phase !== Phase.Running) {
+      return;
+    }
+    const s = this.cell;
+    const cells = PIECES[eng.cur.idx].cells[ai.rot];
+    ctx.strokeStyle = '#FFD24A';
+    ctx.lineWidth = 3;
+    for (let i = 0; i < cells.length; i++) {
+      const bx = ai.x + cells[i][0];
+      const by = ai.landY + cells[i][1];
+      if (by < BUFFER_ROWS) {
+        continue;
+      }
+      this.rr(ctx, this.bx + bx * s + 2, this.by + (by - BUFFER_ROWS) * s + 2, s - 4, s - 4, Math.max(2, s * 0.16));
+      ctx.globalAlpha = 0.9;
+      ctx.stroke();
+      ctx.globalAlpha = 1.0;
     }
   }
 
