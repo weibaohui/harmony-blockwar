@@ -31,6 +31,8 @@ struct Index {
   @State warnCount: number = 0;
   @State aiOn: boolean = false;
   @State itemIcons: string[] = [];
+  @State settingsOpen: boolean = false;
+  @State itemRatePct: number = 35;
 
   // ---------- 引擎与画布 ----------
   private eng: Engine = new Engine();
@@ -45,6 +47,7 @@ struct Index {
   private aiSeq: number = -1;
   private autopilot: boolean = false; // AI 自动驾驶：真实方块自动转向/平移到推荐位
   private aiFails: number = 0;
+  private settingsWasRunning: boolean = false;
   private itemsKey: string = '';
 
   // 手势累计
@@ -62,6 +65,8 @@ struct Index {
       this.bestClassic = this.store.getSync('best_classic', 0) as number;
       this.bestHazard = this.store.getSync('best_hazard', 0) as number;
       this.aiOn = this.store.getSync('ai_assist', false) as boolean;
+      this.itemRatePct = this.store.getSync('item_rate', 35) as number;
+      this.eng.itemRate = this.itemRatePct / 100;
     } catch (e) {
       // 存储不可用时仅丢失最高分记录
     }
@@ -113,6 +118,9 @@ struct Index {
         }
         if (this.phase === Phase.Over) {
           this.overOverlay()
+        }
+        if (this.settingsOpen) {
+          this.settingsOverlay()
         }
       }
       .layoutWeight(1)
@@ -258,6 +266,18 @@ struct Index {
       this.stat(`${this.lines}`, CYAN)
       this.stat(`Lv.${this.level}`, '#B58CFF')
       if (this.phase === Phase.Running || this.phase === Phase.Paused || this.phase === Phase.Clearing) {
+        Text('⚙')
+          .fontSize(15)
+          .fontColor(this.settingsOpen ? GOLD : SUB)
+          .textAlign(TextAlign.Center)
+          .width(34)
+          .height(34)
+          .borderRadius(12)
+          .backgroundColor(this.settingsOpen ? 'rgba(255,210,74,0.16)' : CARD)
+          .border({ width: 1, color: this.settingsOpen ? 'rgba(255,210,74,0.55)' : CARD_LINE })
+          .onClick(() => {
+            this.openSettings();
+          })
         Text('⚡')
           .fontSize(14)
           .fontColor(this.aiOn ? GOLD : SUB)
@@ -298,6 +318,88 @@ struct Index {
   }
 
   // ---------------- 弹层 ----------------
+
+  @Builder
+  settingsOverlay() {
+    Column() {
+      Column({ space: 16 }) {
+        Row({ space: 10 }) {
+          Text('设置')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(TEXT)
+          Blank()
+          Text('✕')
+            .fontSize(15)
+            .fontColor(SUB)
+            .textAlign(TextAlign.Center)
+            .width(32)
+            .height(32)
+            .borderRadius(11)
+            .backgroundColor(CARD)
+            .border({ width: 1, color: CARD_LINE })
+            .onClick(() => {
+              this.closeSettings();
+            })
+        }
+        .width('100%')
+
+        Row({ space: 10 }) {
+          Text('道具概率')
+            .fontSize(13)
+            .fontColor(SUB)
+          Slider({ value: this.itemRatePct, min: 0, max: 100, step: 5 })
+            .width(150)
+            .selectedColor(GOLD)
+            .onChange((value: number, mode: SliderChangeMode) => {
+              this.itemRatePct = Math.round(value);
+              this.eng.itemRate = this.itemRatePct / 100;
+              try {
+                if (this.store !== null) {
+                  this.store.putSync('item_rate', this.itemRatePct);
+                  this.store.flush();
+                }
+              } catch (e) {
+                // 忽略持久化失败
+              }
+            })
+          Text(`${this.itemRatePct}%`)
+            .fontSize(14)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(GOLD)
+            .width(52)
+            .textAlign(TextAlign.End)
+        }
+        .width('100%')
+      }
+      .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+      .borderRadius(16)
+      .backgroundColor('rgba(23,28,49,0.97)')
+      .border({ width: 1, color: CARD_LINE })
+    }
+    .justifyContent(FlexAlign.Center)
+    .width('100%')
+    .height('100%')
+    .backgroundColor('rgba(8,10,20,0.6)')
+    .onClick(() => {
+      this.closeSettings();
+    })
+  }
+
+  private openSettings(): void {
+    this.settingsWasRunning = this.eng.phase === Phase.Running || this.eng.phase === Phase.Clearing;
+    if (this.settingsWasRunning) {
+      this.eng.pause();
+    }
+    this.settingsOpen = true;
+  }
+
+  private closeSettings(): void {
+    if (this.settingsOpen && this.settingsWasRunning && this.eng.phase === Phase.Paused) {
+      this.eng.resume();
+    }
+    this.settingsOpen = false;
+  }
 
   @Builder
   overlayBtn(text: string, bg: string, fg: string, onTap: () => void) {

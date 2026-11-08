@@ -60,6 +60,7 @@ export class Engine {
   pieceSeq = 0; // 每次出新方块自增，供 AI 辅助检测重新计算
   items: number[] = [];      // 背包（ItemType，最多 ITEM_CAP 个）
   slowUntil = 0;             // 🐢 减速截止时间
+  itemRate = 0.35;           // 道具基础掉落概率（设置面板可调，消行数越多在此基础上加成）
   clearingRows: number[] = [];
   clearStart = 0;
   lastFall = 0;
@@ -627,8 +628,8 @@ export class Engine {
     }
     this.level = newLevel;
 
-    // 道具掉落：四消必得，双/三消 45%，单消 30%
-    const chance = n >= 4 ? 1 : (n >= 2 ? 0.45 : 0.3);
+    // 道具掉落：四消必得，其余按设置的基础概率（双行以上 +0.2 加成）
+    const chance = n >= 4 ? 1 : Math.min(1, this.itemRate + (n >= 2 ? 0.2 : 0));
     if (this.items.length < ITEM_CAP && Math.random() < chance) {
       const t = Math.floor(Math.random() * 5);
       this.items.push(t);
