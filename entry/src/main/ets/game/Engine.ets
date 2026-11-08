@@ -21,6 +21,11 @@ export const TOAST_MS = 1000;
 export enum Phase { Ready, Running, Paused, Clearing, Over }
 export enum GameMode { Classic, Hazard }
 
+/** 道具类型 */
+export enum ItemType { Bomb, Mutate, Shuffle, ClearBottom, Slow }
+export const ITEM_ICONS: string[] = ['💥', '🧬', '🎲', '🧹', '🐢'];
+export const ITEM_CAP = 3;
+
 export class Piece {
   idx: number; // 0..6 对应 PIECES 下标
   rot: number;
@@ -52,6 +57,8 @@ export class Engine {
   canHold = true;
   queue: number[] = [];
   pieceSeq = 0; // 每次出新方块自增，供 AI 辅助检测重新计算
+  items: number[] = [];      // 背包（ItemType，最多 ITEM_CAP 个）
+  slowUntil = 0;             // 🐢 减速截止时间
   clearingRows: number[] = [];
   clearStart = 0;
   lastFall = 0;
@@ -91,6 +98,8 @@ export class Engine {
     this.softDrop = false;
     this.pendingGarbage = 0;
     this.garbageFired = 0;
+    this.items = [];
+    this.slowUntil = 0;
     this.toast = '';
     const now = Date.now();
     this.lastFall = now;
@@ -123,6 +132,7 @@ export class Engine {
       this.lockStart += dt;
     }
     this.nextGarbageAt += dt;
+    this.slowUntil += dt;
     if (this.pausedFrom === Phase.Clearing) {
       this.clearStart += dt;
     }
@@ -180,14 +190,19 @@ export class Engine {
   }
 
   gravityMs(): number {
+    let g: number;
     if (this.softDrop) {
-      return 40;
+      g = 40;
+    } else if (this.mode === GameMode.Hazard) {
+      g = 420;
+    } else {
+      const i = Math.min(this.level, Engine.GRAVITY.length) - 1;
+      g = Engine.GRAVITY[i];
     }
-    if (this.mode === GameMode.Hazard) {
-      return 420;
+    if (Date.now() < this.slowUntil) {
+      g = Math.floor(g * 2.5);
     }
-    const i = Math.min(this.level, Engine.GRAVITY.length) - 1;
-    return Engine.GRAVITY[i];
+    return g;
   }
 
   // ---------------- 玩家操作 ----------------
@@ -279,6 +294,152 @@ export class Engine {
       gy += 1;
     }
     return gy;
+  }
+
+  // ---------------- 道具 ----------------
+
+  /** 使用背包中指定槽位的道具（变异由页面层配合 AI 处理） */
+  useItem(slot: number): boolean {
+    if (this.phase !== Phase.Running || slot < 0 || slot >= this.items.length) {
+      return false;
+    }
+    const t = this.items[slot];
+    let ok = false;
+    if (t === ItemType.Bomb) {
+      ok = this.useBomb();
+    } else if (t === ItemType.Shuffle) {
+      ok = this.useShuffle();
+    } else if (t === ItemType.ClearBottom) {
+      ok = this.useClearBottom();
+    } else if (t === ItemType.Slow) {
+      ok = this.useSlow();
+    }
+    if (!ok) {
+      return false;
+    }
+    this.items.splice(slot, 1);
+    return true;
+  }
+
+  /** 移除指定槽位（变异路径专用） */
+  removeItem(slot: number): void {
+    if (slot >= 0 && slot < this.items.length) {
+      this.items.splice(slot, 1);
+    }
+  }
+
+  /** 变异：把当前方块替换为指定形状，原地不行则小幅平移/上移找合法位 */
+  replaceCurrentPiece(newIdx: number): boolean {
+    if (this.phase !== Phase.Running || this.cur === null) {
+      return false;
+    }
+    const old = this.cur;
+    const dxs = [0, -1, 1, -2, 2];
+    for (let d = 0; d < dxs.length; d++) {
+      const nx = old.x + dxs[d];
+      for (let y = Math.max(old.y, 1); y >= 1; y--) {
+        if (!this.collidesAt(new Piece(newIdx, 0, nx, y), nx, y, 0)) {
+          this.cur = new Piece(newIdx, 0, nx, y);
+          this.grounded = false;
+          this.lockResets = 0;
+          this.lastFall = Date.now();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** 💥 爆炸：清除当前方块中心 5×5 砖块，被波及列下落补位 */
+  private useBomb(): boolean {
+    if (this.cur === null) {
+      return false;
+    }
+    const cells = PIECES[this.cur.idx].cells[this.cur.rot];
+    let cx = 0;
+    let cy = 0;
+    for (let i = 0; i < cells.length; i++) {
+      cx += cells[i][0];
+      cy += cells[i][1];
+    }
+    const ccx = Math.floor(cx / cells.length) + this.cur.x;
+    const ccy = Math.floor(cy / cells.length) + this.cur.y;
+    const R = 2;
+    let cleared = 0;
+    for (let bx = ccx - R; bx <= ccx + R; bx++) {
+      if (bx < 0 || bx >= COLS) {
+        continue;
+      }
+      for (let by = ccy - R; by <= ccy + R; by++) {
+        if (by < 0 || by >= BOARD_ROWS) {
+          continue;
+        }
+        if (this.board[by][bx] !== 0) {
+          this.board[by][bx] = 0;
+          cleared += 1;
+        }
+      }
+    }
+    if (cleared === 0) {
+      return false;
+    }
+    for (let c = 0; c < COLS; c++) {
+      this.compactColumn(c);
+    }
+    this.score += cleared * 12;
+    this.showToast(`💥 -${cleared}`);
+    return true;
+  }
+
+  /** 列内重力：非零砖块沉底，空格上浮 */
+  private compactColumn(c: number): void {
+    const col: number[] = [];
+    for (let r = BOARD_ROWS - 1; r >= 0; r--) {
+      if (this.board[r][c] !== 0) {
+        col.push(this.board[r][c]);
+      }
+    }
+    for (let r = BOARD_ROWS - 1; r >= 0; r--) {
+      const k = BOARD_ROWS - 1 - r;
+      this.board[r][c] = k < col.length ? col[k] : 0;
+    }
+  }
+
+  /** 🎲 捣乱：打乱后续队列 */
+  private useShuffle(): boolean {
+    if (this.queue.length < 2) {
+      return false;
+    }
+    for (let i = this.queue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = this.queue[i];
+      this.queue[i] = this.queue[j];
+      this.queue[j] = t;
+    }
+    this.showToast('🎲');
+    return true;
+  }
+
+  /** 🧹 清底：移除底部两行 */
+  private useClearBottom(): boolean {
+    this.board.splice(BOARD_ROWS - 2, 2);
+    for (let i = 0; i < 2; i++) {
+      const row: number[] = [];
+      for (let c = 0; c < COLS; c++) {
+        row.push(0);
+      }
+      this.board.unshift(row);
+    }
+    this.score += 80;
+    this.showToast('🧹');
+    return true;
+  }
+
+  /** 🐢 减速：重力放慢 2.5 倍，持续 10 秒 */
+  private useSlow(): boolean {
+    this.slowUntil = Math.max(this.slowUntil, Date.now()) + 10000;
+    this.showToast('🐢');
+    return true;
   }
 
   // ---------------- 内部逻辑 ----------------
@@ -467,6 +628,14 @@ export class Engine {
       this.showToast(`⬆ Lv.${newLevel}`);
     }
     this.level = newLevel;
+
+    // 道具掉落：四消必得，双/三消 45%，单消 30%
+    const chance = n >= 4 ? 1 : (n >= 2 ? 0.45 : 0.3);
+    if (this.items.length < ITEM_CAP && Math.random() < chance) {
+      const t = Math.floor(Math.random() * 5);
+      this.items.push(t);
+      this.showToast(`+ ${ITEM_ICONS[t]}`);
+    }
 
     this.phase = Phase.Running;
     this.spawnFromQueue(Date.now());

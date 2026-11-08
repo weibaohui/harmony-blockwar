@@ -15,14 +15,16 @@ export class AIResult {
 }
 
 export class PieceAI {
-  /** 对当前棋盘上的指定方块计算最佳落点 */
+  /** 对当前棋盘上的当前方块计算最佳落点 */
   static best(engine: Engine): AIResult | null {
     if (engine.cur === null) {
       return null;
     }
-    const board = engine.board;
-    const idx = engine.cur.idx;
+    return PieceAI.bestFor(engine.board, engine.cur.idx);
+  }
 
+  /** 对任意形状计算最佳落点（🧬 变异道具用它比较七种形状） */
+  static bestFor(board: number[][], idx: number): AIResult | null {
     let bestR = -1;
     let bestX = -1;
     let bestY = -1;
@@ -40,7 +42,7 @@ export class PieceAI {
         while (PieceAI.fits(board, cells, x, y + 1)) {
           y += 1;
         }
-        // 落底并模拟消行
+        // 落底并模拟消行（重建法，避免 splice 索引偏移）
         const sim = PieceAI.cloneBoard(board);
         for (let i = 0; i < cells.length; i++) {
           const bx = x + cells[i][0];
@@ -50,7 +52,8 @@ export class PieceAI {
           }
         }
         let lines = 0;
-        for (let r = sim.length - 1; r >= 0; r--) {
+        const kept: number[][] = [];
+        for (let r = 0; r < sim.length; r++) {
           let full = true;
           for (let c = 0; c < COLS; c++) {
             if (sim[r][c] === 0) {
@@ -59,19 +62,19 @@ export class PieceAI {
             }
           }
           if (full) {
-            sim.splice(r, 1);
             lines += 1;
-            r += 1; // splice 后同一行下移，重查该下标
+          } else {
+            kept.push(sim[r]);
           }
         }
-        while (sim.length < BOARD_ROWS) {
+        while (kept.length < BOARD_ROWS) {
           const row: number[] = [];
           for (let c = 0; c < COLS; c++) {
             row.push(0);
           }
-          sim.unshift(row);
+          kept.unshift(row);
         }
-        const s = PieceAI.evaluate(sim, lines);
+        const s = PieceAI.evaluate(kept, lines);
         if (s > bestScore) {
           bestScore = s;
           bestR = rot;
