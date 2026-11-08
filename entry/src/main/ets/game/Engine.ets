@@ -34,6 +34,18 @@ export const ITEM_DESCS: string[] = [
 ];
 export const ITEM_CAP = 3;
 
+export const BLAST_MS = 500;
+
+/** 一次爆破特效事件：爆心 + 被清格子的原值（渲染层画碎片） */
+export class BlastFx {
+  cx: number = 0;        // 爆心列
+  cy: number = 0;        // 爆心行（棋盘内部坐标）
+  r: number = 1;         // 半径（1=3×3，2=5×5）
+  cells: number[][] = []; // 被清格子 [行, 列]
+  values: number[] = [];  // 被清格子原值（含藏弹编码）
+  t: number = 0;          // 起爆时间戳
+}
+
 export class Piece {
   idx: number; // 0..6 对应 PIECES 下标
   rot: number;
@@ -72,6 +84,7 @@ export class Engine {
   // 道具生效大卡片（页面层展示，[图标, 名称, 描述]）
   banner: string[] | null = null;
   bannerAt = 0;
+  blasts: BlastFx[] = []; // 进行中的爆破特效
   clearingRows: number[] = [];
   clearStart = 0;
   lastFall = 0;
@@ -115,6 +128,7 @@ export class Engine {
     this.slowUntil = 0;
     this.banner = null;
     this.bannerAt = 0;
+    this.blasts = [];
     this.toast = '';
     const now = Date.now();
     this.lastFall = now;
@@ -156,6 +170,10 @@ export class Engine {
 
   /** 每帧推进，now = Date.now() */
   tick(now: number): void {
+    // 清理过期爆破特效
+    while (this.blasts.length > 0 && now - this.blasts[0].t > BLAST_MS + 400) {
+      this.blasts.shift();
+    }
     if (this.phase === Phase.Clearing) {
       if (now - this.clearStart >= CLEAR_ANIM_MS) {
         this.finishClear();
@@ -383,6 +401,11 @@ export class Engine {
     const ccy = Math.floor(cy / cells.length) + this.cur.y;
     const R = 2;
     let cleared = 0;
+    const fx = new BlastFx();
+    fx.cx = ccx;
+    fx.cy = ccy;
+    fx.r = R;
+    fx.t = Date.now();
     for (let bx = ccx - R; bx <= ccx + R; bx++) {
       if (bx < 0 || bx >= COLS) {
         continue;
@@ -392,6 +415,8 @@ export class Engine {
           continue;
         }
         if (this.board[by][bx] !== 0) {
+          fx.values.push(this.board[by][bx]);
+          fx.cells.push([by, bx]);
           this.board[by][bx] = 0;
           cleared += 1;
         }
@@ -400,6 +425,7 @@ export class Engine {
     if (cleared === 0) {
       return false;
     }
+    this.blasts.push(fx);
     for (let c = 0; c < COLS; c++) {
       this.compactColumn(c);
     }
@@ -772,12 +798,18 @@ export class Engine {
         }
       }
     }
-    // 清除爆破区域 + 列内下落补位
+    // 清除爆破区域（记录特效）+ 列内下落补位
     let cleared = 0;
     const colsAffected = new Set<number>();
+    const now = Date.now();
     for (const key of exploded) {
       const r = Math.floor(key / COLS);
       const c = key % COLS;
+      const fx = new BlastFx();
+      fx.cx = c;
+      fx.cy = r;
+      fx.r = 1;
+      fx.t = now;
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
           const nr = r + dr;
@@ -786,12 +818,15 @@ export class Engine {
             continue;
           }
           if (this.board[nr][nc] !== 0) {
+            fx.values.push(this.board[nr][nc]);
+            fx.cells.push([nr, nc]);
             this.board[nr][nc] = 0;
             cleared += 1;
             colsAffected.add(nc);
           }
         }
       }
+      this.blasts.push(fx);
     }
     if (cleared === 0) {
       return false;

@@ -6,7 +6,7 @@
  * - 横屏：棋盘左侧 HOLD、右侧 NEXT
  */
 
-import { Engine, Phase, GameMode, ROWS, COLS, BUFFER_ROWS, BOARD_ROWS, GARBAGE_INTERVAL_MS } from './Engine';
+import { Engine, Phase, GameMode, ROWS, COLS, BUFFER_ROWS, BOARD_ROWS, GARBAGE_INTERVAL_MS, BLAST_MS } from './Engine';
 import { PIECES, GARBAGE_COLOR, GARBAGE_LIGHT, GARBAGE_DARK, PieceDef } from './Tetromino';
 import { AIResult } from './AI';
 
@@ -62,6 +62,7 @@ export class Renderer {
     this.drawSettled(ctx, bw, bh, eng, now);
     this.drawActive(ctx, eng);
     this.drawAIHint(ctx, eng, ai);
+    this.drawBlasts(ctx, eng, now);
     this.drawHazardBar(ctx, bw, bh, eng, now);
     this.drawToast(ctx, bw, bh, eng, now);
   }
@@ -113,6 +114,7 @@ export class Renderer {
     this.drawSettled(ctx, bw, bh, eng, now);
     this.drawActive(ctx, eng);
     this.drawAIHint(ctx, eng, ai);
+    this.drawBlasts(ctx, eng, now);
     this.drawHazardBar(ctx, bw, bh, eng, now);
     this.drawToast(ctx, bw, bh, eng, now);
   }
@@ -265,6 +267,67 @@ export class Renderer {
       this.rr(ctx, this.bx + bx * s + 2, this.by + (by - BUFFER_ROWS) * s + 2, s - 4, s - 4, Math.max(2, s * 0.16));
       ctx.globalAlpha = 0.9;
       ctx.stroke();
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
+  /** 真实爆破特效：起爆闪核 + 扩散冲击环 + 碎片飞散（碎片颜色 = 原砖块颜色） */
+  private drawBlasts(ctx: CanvasRenderingContext2D, eng: Engine, now: number): void {
+    const s = this.cell;
+    for (const fx of eng.blasts) {
+      const age = now - fx.t;
+      if (age < 0 || age > BLAST_MS) {
+        continue;
+      }
+      const p = age / BLAST_MS;
+      const cx = this.bx + (fx.cx + 0.5) * s;
+      const cy = this.by + (fx.cy - BUFFER_ROWS + 0.5) * s;
+      const R = (fx.r + 0.5) * s;
+      // 扩散冲击环
+      ctx.strokeStyle = p < 0.3 ? '#FFE58A' : '#FF8C3B';
+      ctx.lineWidth = Math.max(2, s * 0.18 * (1 - p));
+      ctx.globalAlpha = 1 - p;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * (0.6 + 1.7 * p), 0, Math.PI * 2);
+      ctx.stroke();
+      // 起爆闪核
+      if (p < 0.25) {
+        ctx.fillStyle = `rgba(255,240,180,${(0.9 - p * 3.6).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(cx, cy, Math.max(1, R * (1 - p * 3)), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // 碎片：被炸碎的砖块沿离心方向飞散
+      for (let i = 0; i < fx.cells.length; i++) {
+        const cellR = fx.cells[i][0];
+        const cellC = fx.cells[i][1];
+        const px = this.bx + (cellC + 0.5) * s;
+        const py = this.by + (cellR - BUFFER_ROWS + 0.5) * s;
+        let dx = px - cx;
+        let dy = py - cy;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 1) {
+          const ang = i * 2.399;
+          dx = Math.cos(ang);
+          dy = Math.sin(ang);
+        } else {
+          dx /= len;
+          dy /= len;
+        }
+        const fly = p * s * (1.4 + 0.5 * (i % 3));
+        const size = Math.max(1, s * 0.36 * (1 - p));
+        const v = fx.values[i];
+        let color = GARBAGE_COLOR;
+        if (v >= 1 && v <= 7) {
+          color = PIECES[v - 1].color;
+        } else if (v > 10) {
+          color = PIECES[v - 11].color;
+        }
+        ctx.globalAlpha = 1 - p;
+        ctx.fillStyle = color;
+        this.rr(ctx, px + dx * fly - size / 2, py + dy * fly - size / 2, size, size, size * 0.25);
+        ctx.fill();
+      }
       ctx.globalAlpha = 1.0;
     }
   }
