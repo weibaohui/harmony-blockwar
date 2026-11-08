@@ -43,6 +43,8 @@ struct Index {
   private store: preferences.Preferences | null = null;
   private aiResult: AIResult | null = null;
   private aiSeq: number = -1;
+  private autopilot: boolean = false; // AI 自动驾驶：真实方块自动转向/平移到推荐位
+  private aiFails: number = 0;
   private itemsKey: string = '';
 
   // 手势累计
@@ -115,11 +117,12 @@ struct Index {
       }
       .layoutWeight(1)
       .width('100%')
-      // 手势：点按旋转 / 拖动移动与软降 / 快速下滑硬降 / 上滑暂存
+      // 手势：点按旋转 / 拖动移动与软降 / 快速下滑硬降 / 上滑暂存（玩家操作即接管，取消自动定位）
       .gesture(
         TapGesture({ count: 1 })
           .onAction(() => {
             if (this.eng.phase === Phase.Running) {
+              this.autopilot = false;
               this.eng.rotate(1);
             }
           })
@@ -127,6 +130,7 @@ struct Index {
       .gesture(
         PanGesture({ fingers: 1, direction: PanDirection.All, distance: 6 })
           .onActionStart((e: GestureEvent) => {
+            this.autopilot = false;
             this.lastGX = e.offsetX;
             this.lastGY = e.offsetY;
             this.gStart = Date.now();
@@ -468,9 +472,34 @@ struct Index {
       if (this.eng.pieceSeq !== this.aiSeq) {
         this.aiSeq = this.eng.pieceSeq;
         this.aiResult = PieceAI.best(this.eng);
+        this.autopilot = this.aiResult !== null;
+        this.aiFails = 0;
       }
     } else if (this.aiResult !== null) {
       this.aiResult = null;
+      this.autopilot = false;
+    }
+    // 自动驾驶：真实方块逐帧转向/平移到推荐位，到位或受阻即停
+    if (this.autopilot && this.eng.phase === Phase.Running && this.eng.cur !== null && this.aiResult !== null) {
+      const c = this.eng.cur;
+      if (c.rot !== this.aiResult.rot) {
+        const diff = (this.aiResult.rot - c.rot + 4) % 4;
+        if (!this.eng.rotate(diff <= 2 ? 1 : -1)) {
+          this.autopilot = false; // 旋转受阻，放弃本次自动定位
+        }
+      } else if (c.x !== this.aiResult.x) {
+        const dx = this.aiResult.x > c.x ? 1 : -1;
+        if (this.eng.moveH(dx)) {
+          this.aiFails = 0;
+        } else {
+          this.aiFails += 1;
+          if (this.aiFails > 1) {
+            this.autopilot = false; // 连续平移受阻，放弃
+          }
+        }
+      } else {
+        this.autopilot = false; // 已到位
+      }
     }
     this.rd.draw(this.canvasCtx, this.cvW, this.cvH, this.eng, now, this.aiResult);
 
@@ -550,6 +579,8 @@ struct Index {
     this.warn = false;
     this.aiSeq = -1;
     this.aiResult = null;
+    this.autopilot = false;
+    this.aiFails = 0;
     this.eng.start(mode);
     this.phase = this.eng.phase;
   }
