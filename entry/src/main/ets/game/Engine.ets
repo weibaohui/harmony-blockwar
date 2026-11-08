@@ -24,6 +24,14 @@ export enum GameMode { Classic, Hazard }
 /** 道具类型 */
 export enum ItemType { Bomb, Mutate, Shuffle, ClearBottom, Slow }
 export const ITEM_ICONS: string[] = ['💥', '🧬', '🎲', '🧹', '🐢'];
+export const ITEM_NAMES: string[] = ['爆炸', '变异', '捣乱', '清底', '减速'];
+export const ITEM_DESCS: string[] = [
+  '轰掉落点周围 5×5 砖块，上方砖块下落补位',
+  'AI 算出当前局势最优形状，当场变身',
+  '把后续所有方块顺序全部打乱',
+  '直接移除底部两行堆叠',
+  '重力放慢 2.5 倍，持续 10 秒',
+];
 export const ITEM_CAP = 3;
 
 export class Piece {
@@ -61,6 +69,9 @@ export class Engine {
   items: number[] = [];      // 背包（ItemType，最多 ITEM_CAP 个）
   slowUntil = 0;             // 🐢 减速截止时间
   itemRate = 0.35;           // 道具基础掉落概率（设置面板可调，消行数越多在此基础上加成）
+  // 道具生效大卡片（页面层展示，[图标, 名称, 描述]）
+  banner: string[] | null = null;
+  bannerAt = 0;
   clearingRows: number[] = [];
   clearStart = 0;
   lastFall = 0;
@@ -102,6 +113,8 @@ export class Engine {
     this.garbageFired = 0;
     this.items = [];
     this.slowUntil = 0;
+    this.banner = null;
+    this.bannerAt = 0;
     this.toast = '';
     const now = Date.now();
     this.lastFall = now;
@@ -788,6 +801,8 @@ export class Engine {
     }
     this.score += cleared * 10;
     this.showToast(`💣 x${exploded.size} -${cleared}`);
+    this.banner = ['💣', '连环爆破', '藏弹引爆 3×3 连锁'];
+    this.bannerAt = Date.now();
     return true;
   }
 }

@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { Engine, Phase, GameMode, ItemType, ITEM_ICONS } from '../game/Engine';
+import { Engine, Phase, GameMode, ItemType, ITEM_ICONS, ITEM_NAMES, ITEM_DESCS } from '../game/Engine';
 import { Renderer } from '../game/Renderer';
 import { PieceAI, AIResult } from '../game/AI';
 
@@ -33,6 +33,7 @@ struct Index {
   @State itemIcons: string[] = [];
   @State settingsOpen: boolean = false;
   @State itemRatePct: number = 35;
+  @State banner: string[] | null = null; // 道具生效卡片 [图标, 名称, 描述]
 
   // ---------- 引擎与画布 ----------
   private eng: Engine = new Engine();
@@ -48,6 +49,8 @@ struct Index {
   private autopilot: boolean = false; // AI 自动驾驶：真实方块自动转向/平移到推荐位
   private aiFails: number = 0;
   private settingsWasRunning: boolean = false;
+  private bannerUntil: number = 0;
+  private bannerSeenAt: number = 0;
   private itemsKey: string = '';
 
   // 手势累计
@@ -121,6 +124,9 @@ struct Index {
         }
         if (this.settingsOpen) {
           this.settingsOverlay()
+        }
+        if (this.banner !== null) {
+          this.bannerOverlay()
         }
       }
       .layoutWeight(1)
@@ -210,7 +216,7 @@ struct Index {
     .padding({ left: 12, right: 12, top: 4, bottom: 4 })
   }
 
-  /** 使用道具：🧬 变异走 AI 选最优形状，其余走引擎 */
+  /** 使用道具：🧬 变异走 AI 选最优形状，其余走引擎；生效弹出大卡片 */
   private useItemAt(slot: number): void {
     const t = this.eng.items[slot];
     if (t === ItemType.Mutate) {
@@ -225,13 +231,20 @@ struct Index {
       }
       if (bestIdx >= 0 && this.eng.replaceCurrentPiece(bestIdx)) {
         this.eng.removeItem(slot);
+        this.showBanner(ItemType.Mutate);
         this.aiSeq = -1;
       }
       return;
     }
     if (this.eng.useItem(slot)) {
+      this.showBanner(t);
       this.aiSeq = -1;
     }
+  }
+
+  private showBanner(t: number): void {
+    this.banner = [ITEM_ICONS[t], ITEM_NAMES[t], ITEM_DESCS[t]];
+    this.bannerUntil = Date.now() + 2200;
   }
 
   // ---------------- HUD ----------------
@@ -315,6 +328,29 @@ struct Index {
       .borderRadius(10)
       .border({ width: 1, color: CARD_LINE })
       .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+  }
+
+  // ---------------- 道具生效卡片 ----------------
+
+  @Builder
+  bannerOverlay() {
+    Column({ space: 6 }) {
+      Text(this.banner![0])
+        .fontSize(54)
+      Text(this.banner![1])
+        .fontSize(22)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(GOLD)
+      Text(this.banner![2])
+        .fontSize(13)
+        .fontColor(TEXT)
+    }
+    .alignItems(HorizontalAlign.Center)
+    .padding({ left: 26, right: 26, top: 18, bottom: 18 })
+    .borderRadius(20)
+    .backgroundColor('rgba(23,28,49,0.95)')
+    .border({ width: 2, color: GOLD })
+    .shadow({ radius: 24, color: 'rgba(255,210,74,0.35)', offsetX: 0, offsetY: 0 })
   }
 
   // ---------------- 弹层 ----------------
@@ -638,6 +674,15 @@ struct Index {
         arr.push(ITEM_ICONS[e.items[i]]);
       }
       this.itemIcons = arr;
+    }
+    // 道具生效大卡片（藏弹引爆等引擎侧触发）
+    if (e.banner !== null && e.bannerAt !== this.bannerSeenAt) {
+      this.bannerSeenAt = e.bannerAt;
+      this.banner = e.banner;
+      this.bannerUntil = now + 2200;
+    }
+    if (this.banner !== null && now > this.bannerUntil) {
+      this.banner = null;
     }
     if (e.mode === GameMode.Hazard && e.phase === Phase.Running) {
       const s = Math.max(0, Math.ceil((e.nextGarbageAt - now) / 1000));
