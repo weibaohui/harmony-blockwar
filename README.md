@@ -35,6 +35,7 @@ entry/src/main/ets/
 export JAVA_HOME=/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home
 export NODE_HOME=/Applications/DevEco-Studio.app/Contents/tools/node
 export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
+export PATH="/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin:$PATH"
 hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon
 hdc install -r entry/build/default/outputs/default/entry-default-signed.hap
 ```

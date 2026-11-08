@@ -1,14 +1,17 @@
 /**
  * 游戏核心引擎：纯逻辑，不依赖 UI。
- * - 10×20 棋盘、7-bag 随机发牌、SRS 旋转 + 踢墙
- * - 锁定延迟（400ms，最多重置 15 次）、幽灵投影、Hold、连击与 B2B 计分
+ * - 棋盘内部 22 行（顶部 2 行为隐藏缓冲区，符合 Tetris Guideline），可见 20 行
+ * - 7-bag 随机发牌、SRS 旋转 + 踢墙、锁定延迟（400ms/最多重置 15 次）
+ * - 幽灵投影、Hold、连击与 B2B 计分
  * - 两种模式：经典马拉松 / 危机模式（定时从底部顶起垃圾行）
  */
 
 import { PIECES, kickTable } from './Tetromino';
 
 export const COLS = 10;
-export const ROWS = 20;
+export const ROWS = 20;          // 可见行数（渲染用）
+export const BUFFER_ROWS = 2;    // 顶部隐藏缓冲区行数
+export const BOARD_ROWS = ROWS + BUFFER_ROWS; // 棋盘内部总行数 22
 export const LOCK_DELAY_MS = 400;
 export const MAX_LOCK_RESETS = 15;
 export const CLEAR_ANIM_MS = 180;
@@ -36,7 +39,7 @@ export class Engine {
   static readonly GRAVITY: number[] =
     [900, 800, 700, 620, 540, 460, 380, 320, 260, 210, 170, 140, 115, 95, 80];
 
-  board: number[][] = []; // ROWS×COLS，取值见 Tetromino 注释
+  board: number[][] = []; // BOARD_ROWS×COLS，取值：0=空，1..7=PIECES 下标+1，-1=垃圾砖
   phase: Phase = Phase.Ready;
   mode: GameMode = GameMode.Classic;
   score = 0;
@@ -281,7 +284,7 @@ export class Engine {
 
   private prepareEmptyBoard(): void {
     this.board = [];
-    for (let r = 0; r < ROWS; r++) {
+    for (let r = 0; r < BOARD_ROWS; r++) {
       const row: number[] = [];
       for (let c = 0; c < COLS; c++) {
         row.push(0);
@@ -321,11 +324,11 @@ export class Engine {
   }
 
   private spawnPiece(idx: number, now: number): void {
+    // 出生点：可见区顶部再往上（缓冲区），大部分方块只有底部露出
     const isI = idx === 0;
     const px = isI ? 3 : (idx === 1 ? 4 : 3);
-    const py = isI ? -1 : 0;
+    const py = 1;
     const p = new Piece(idx, 0, px, py);
-    this.canHold = true;
     this.grounded = false;
     this.lockResets = 0;
     this.lastFall = now;
@@ -346,7 +349,7 @@ export class Engine {
     if (this.lockResets >= MAX_LOCK_RESETS) {
       return;
     }
-    // 触底后移动/旋转成功 → 重置锁定计时（Infinity 防无限延迟）
+    // 触底后移动/旋转成功 → 重置锁定计时（次数封顶防无限延迟）
     this.lockStart = Date.now();
     this.lockResets += 1;
   }
@@ -357,26 +360,38 @@ export class Engine {
       return;
     }
     const cells = PIECES[p.idx].cells[p.rot];
-    let aboveTop = false;
+    // 防御：锁定位置非法说明堆已顶出（正常流程不可达）
+    if (this.collidesAt(p, p.x, p.y, p.rot)) {
+      this.cur = null;
+      this.phase = Phase.Over;
+      this.showToast('游戏结束');
+      return;
+    }
+    let aboveVisible = 0;
     for (let i = 0; i < cells.length; i++) {
       const bx = p.x + cells[i][0];
       const by = p.y + cells[i][1];
       if (by < 0) {
-        aboveTop = true;
+        aboveVisible += 1;
         continue;
       }
       this.board[by][bx] = p.idx + 1;
+      if (by < BUFFER_ROWS) {
+        aboveVisible += 1;
+      }
     }
     this.cur = null;
     this.grounded = false;
-    if (aboveTop) {
+    this.canHold = true; // 落定后恢复 Hold 资格
+    // Lock Out：整个方块都锁在可见区之上 → 游戏结束
+    if (aboveVisible >= cells.length) {
       this.phase = Phase.Over;
       this.showToast('游戏结束');
       return;
     }
     // 检测满行
     const full: number[] = [];
-    for (let r = 0; r < ROWS; r++) {
+    for (let r = 0; r < BOARD_ROWS; r++) {
       let ok = true;
       for (let c = 0; c < COLS; c++) {
         if (this.board[r][c] === 0) {
@@ -402,12 +417,12 @@ export class Engine {
   private finishClear(): void {
     const n = this.clearingRows.length;
     const kept: number[][] = [];
-    for (let r = 0; r < ROWS; r++) {
+    for (let r = 0; r < BOARD_ROWS; r++) {
       if (this.clearingRows.indexOf(r) < 0) {
         kept.push(this.board[r]);
       }
     }
-    while (kept.length < ROWS) {
+    while (kept.length < BOARD_ROWS) {
       const row: number[] = [];
       for (let c = 0; c < COLS; c++) {
         row.push(0);
@@ -456,7 +471,7 @@ export class Engine {
 
   private pushGarbage(n: number): void {
     for (let i = 0; i < n; i++) {
-      this.board.shift();
+      this.board.shift(); // 顶行（缓冲区）移出
       const row: number[] = [];
       const hole = Math.floor(Math.random() * COLS);
       for (let c = 0; c < COLS; c++) {
@@ -472,7 +487,7 @@ export class Engine {
     for (let i = 0; i < cells.length; i++) {
       const bx = nx + cells[i][0];
       const by = ny + cells[i][1];
-      if (bx < 0 || bx >= COLS || by >= ROWS) {
+      if (bx < 0 || bx >= COLS || by >= BOARD_ROWS) {
         return true;
       }
       if (by >= 0 && this.board[by][bx] !== 0) {

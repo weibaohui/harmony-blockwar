@@ -4,7 +4,7 @@
  * 布局：左侧 HOLD 面板 + 中间 10×20 棋盘 + 右侧 NEXT 面板。
  */
 
-import { Engine, Phase, GameMode, ROWS, COLS, GARBAGE_INTERVAL_MS } from './Engine';
+import { Engine, Phase, GameMode, ROWS, COLS, BUFFER_ROWS, BOARD_ROWS, GARBAGE_INTERVAL_MS } from './Engine';
 import { PIECES, GARBAGE_COLOR, GARBAGE_LIGHT, GARBAGE_DARK, PieceDef } from './Tetromino';
 
 const BOARD_BG = '#141A2C';
@@ -82,14 +82,14 @@ export class Renderer {
 
   private drawSettled(ctx: CanvasRenderingContext2D, bw: number, bh: number, eng: Engine, now: number): void {
     const s = this.cell;
-    for (let r = 0; r < ROWS; r++) {
+    for (let r = BUFFER_ROWS; r < BOARD_ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const v = eng.board[r][c];
         if (v === 0) {
           continue;
         }
         const x = this.bx + c * s;
-        const y = this.by + r * s;
+        const y = this.by + (r - BUFFER_ROWS) * s;
         if (v === -1) {
           this.block(ctx, x, y, s, GARBAGE_COLOR, GARBAGE_LIGHT, GARBAGE_DARK, 1.0);
         } else {
@@ -104,7 +104,10 @@ export class Renderer {
       const a = Math.max(0, 0.9 - t);
       ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
       for (let i = 0; i < eng.clearingRows.length; i++) {
-        ctx.fillRect(this.bx, this.by + eng.clearingRows[i] * s, bw, s);
+        if (eng.clearingRows[i] < BUFFER_ROWS) {
+          continue;
+        }
+        ctx.fillRect(this.bx, this.by + (eng.clearingRows[i] - BUFFER_ROWS) * s, bw, s);
       }
     }
   }
@@ -128,10 +131,10 @@ export class Renderer {
       for (let i = 0; i < cells.length; i++) {
         const bx = p.x + cells[i][0];
         const by = gy + cells[i][1];
-        if (by < 0) {
+        if (by < BUFFER_ROWS) {
           continue;
         }
-        this.rr(ctx, this.bx + bx * s + 2, this.by + by * s + 2, s - 4, s - 4, Math.max(2, s * 0.16));
+        this.rr(ctx, this.bx + bx * s + 2, this.by + (by - BUFFER_ROWS) * s + 2, s - 4, s - 4, Math.max(2, s * 0.16));
         ctx.globalAlpha = 0.45;
         ctx.stroke();
         ctx.globalAlpha = 1.0;
@@ -141,10 +144,10 @@ export class Renderer {
     for (let i = 0; i < cells.length; i++) {
       const bx = p.x + cells[i][0];
       const by = p.y + cells[i][1];
-      if (by < 0) {
+      if (by < BUFFER_ROWS) {
         continue;
       }
-      this.block(ctx, this.bx + bx * s, this.by + by * s, s, def.color, def.light, def.dark, 1.0);
+      this.block(ctx, this.bx + bx * s, this.by + (by - BUFFER_ROWS) * s, s, def.color, def.light, def.dark, 1.0);
     }
   }
 
