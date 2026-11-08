@@ -1,0 +1,38 @@
+# 构建产物
+build/
+.cxx/
+
+# Hvigor 缓存
+.hvigor/
+
+# 依赖目录（本地安装，按需重建）
+oh_modules/
+node_modules/
+
+# IDE 配置
+.idea/
+*.iml
+.vscode/
+
+# 本机 SDK 路径（每台机器不同，不入库）
+local.properties
+
+# macOS
+.DS_Store
+
+# 日志
+*.log
+hilog*.txt
+
+# Python 缓存（图标设计脚本）
+__pycache__/
+*.pyc
+
+# 签名材料（不入库，机器绑定）
+# 注意：build-profile.json5 里的 signingConfigs 含本机加密密码和绝对路径，
+# 仓库分享/迁移时建议把 signingConfigs 清空或单独维护一份模板。
+
+# 截图与临时文件
+screenshots/
+*.hap
+*.app

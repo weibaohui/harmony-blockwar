@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.1.1",
+  "name": "blockwar",
+  "version": "1.0.0",
+  "description": "方块战争 BlockWar — HarmonyOS 彩屏俄罗斯方块（ArkTS Canvas 手写游戏核心）",
+  "main": "",
+  "author": "weibaohui",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}
