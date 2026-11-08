@@ -8,7 +8,7 @@
 
 import { PIECES, kickTable } from './Tetromino';
 
-export const COLS = 10;
+export const COLS = 15;
 export const ROWS = 20;          // 可见行数（渲染用）
 export const BUFFER_ROWS = 2;    // 顶部隐藏缓冲区行数
 export const BOARD_ROWS = ROWS + BUFFER_ROWS; // 棋盘内部总行数 22
@@ -324,9 +324,10 @@ export class Engine {
   }
 
   private spawnPiece(idx: number, now: number): void {
-    // 出生点：可见区顶部再往上（缓冲区），大部分方块只有底部露出
+    // 出生点：可见区顶部再往上（缓冲区），水平居中
     const isI = idx === 0;
-    const px = isI ? 3 : (idx === 1 ? 4 : 3);
+    const px = isI ? Math.floor((COLS - 4) / 2)
+      : (idx === 1 ? Math.floor((COLS - 2) / 2) : Math.floor((COLS - 3) / 2));
     const py = 1;
     const p = new Piece(idx, 0, px, py);
     this.grounded = false;

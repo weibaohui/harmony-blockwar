@@ -45,7 +45,7 @@ export class Renderer {
   // ---------------- 竖屏布局 ----------------
 
   private drawPortrait(ctx: CanvasRenderingContext2D, W: number, H: number, eng: Engine, now: number): void {
-    let cell = Math.floor(Math.min(W / 10.8, H / (ROWS + STRIP + 0.4)));
+    let cell = Math.floor(Math.min(W / (COLS + 0.3), H / (ROWS + STRIP + 0.4)));
     if (cell < 6) {
       cell = 6;
     }
@@ -67,7 +67,7 @@ export class Renderer {
   /** 竖屏顶部信息条：HOLD 在左，NEXT 三枚在右 */
   private drawStrip(ctx: CanvasRenderingContext2D, eng: Engine, x: number, y: number, w: number, h: number): void {
     const s = this.cell;
-    const holdW = Math.floor(2.8 * s);
+    const holdW = Math.floor(3.0 * s);
     this.rr(ctx, x, y, holdW, h, 8);
     ctx.fillStyle = PANEL_BG;
     ctx.fill();
@@ -78,7 +78,7 @@ export class Renderer {
       this.miniPiece(ctx, eng.holdIdx, x + holdW / 2, y + h / 2, s * 0.5, eng.canHold ? 1.0 : 0.35);
     }
 
-    const nextW = Math.floor(6.2 * s);
+    const nextW = Math.floor(9.0 * s);
     const nx = x + w - nextW;
     this.rr(ctx, nx, y, nextW, h, 8);
     ctx.fillStyle = PANEL_BG;
@@ -89,25 +89,24 @@ export class Renderer {
     for (let i = 0; i < 3 && i < eng.queue.length; i++) {
       const cx = nx + nextW * (i + 0.5) / 3;
       const alpha = i === 0 ? 1.0 : (i === 1 ? 0.75 : 0.5);
-      this.miniPiece(ctx, eng.queue[i], cx, y + h / 2, s * 0.42, alpha);
+      this.miniPiece(ctx, eng.queue[i], cx, y + h / 2, s * 0.46, alpha);
     }
   }
 
   // ---------------- 横屏布局 ----------------
 
   private drawLandscape(ctx: CanvasRenderingContext2D, W: number, H: number, eng: Engine, now: number): void {
-    let cell = Math.floor(Math.min(W / (COLS + (SIDE + GAP) * 2), H / (ROWS + 0.8)));
+    let cell = Math.floor(Math.min(W / (COLS + (SIDE + GAP) * 2 + 0.4), H / (ROWS + 0.8)));
     if (cell < 6) {
       cell = 6;
     }
     this.cell = cell;
     const bw = COLS * cell;
     const bh = ROWS * cell;
-    const leftW = Math.floor((SIDE + GAP) * cell);
-    this.bx = Math.floor((W - (bw + leftW * 2)) / 2) + leftW;
+    this.bx = Math.floor((W - bw) / 2);
     this.by = Math.floor((H - bh) / 2);
 
-    this.drawSidePanels(ctx, eng);
+    this.drawSidePanels(ctx, W, eng);
     this.drawBoardBase(ctx, bw, bh);
     this.drawSettled(ctx, bw, bh, eng, now);
     this.drawActive(ctx, eng);
@@ -115,12 +114,12 @@ export class Renderer {
     this.drawToast(ctx, bw, bh, eng, now);
   }
 
-  /** 横屏侧面板：HOLD 左、NEXT 右 */
-  private drawSidePanels(ctx: CanvasRenderingContext2D, eng: Engine): void {
+  /** 横屏侧面板：HOLD 钉左边缘、NEXT 钉右边缘 */
+  private drawSidePanels(ctx: CanvasRenderingContext2D, W: number, eng: Engine): void {
     const s = this.cell;
     const panelW = Math.floor(SIDE * s);
-    const leftX = this.bx - Math.floor((SIDE + GAP) * s);
-    const rightX = this.bx + COLS * s + Math.floor(GAP * s);
+    const leftX = 12;
+    const rightX = W - panelW - 12;
 
     this.rr(ctx, leftX, this.by, panelW, Math.floor(4.2 * s), 8);
     ctx.fillStyle = PANEL_BG;
