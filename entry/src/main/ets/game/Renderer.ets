@@ -184,10 +184,12 @@ export class Renderer {
         }
         const x = this.bx + c * s;
         const y = this.by + (r - BUFFER_ROWS) * s;
-        if (v === -1) {
+        // 藏弹格编码为原形状值 +10，绘制时解码，外观与普通砖一致
+        const base = v > 10 ? v - 10 : v;
+        if (base === -1) {
           this.block(ctx, x, y, s, GARBAGE_COLOR, GARBAGE_LIGHT, GARBAGE_DARK, 1.0);
         } else {
-          const def = PIECES[v - 1];
+          const def = PIECES[base - 1];
           this.block(ctx, x, y, s, def.color, def.light, def.dark, 1.0);
         }
       }
